@@ -135,7 +135,11 @@ if view_mode == "YOY – Like-to-Like Stores (LFL)":
 
         df_raw = dec_sheets["YOY – Like-to-Like Stores (LFL)"].copy()
 
-        df_raw["Date"] = pd.to_datetime(df_raw["Month"], format="%b-%Y")
+        df_raw["Date"] = pd.to_datetime(df_raw["Month"], errors="coerce")
+        if df_raw["Date"].isna().any():
+    st.error("Some Month values could not be parsed into dates. Please check the DEC file format.")
+    st.stop()
+
 
         qty_2024_col = next((c for c in df_raw.columns if "qty" in c.lower() and "2024" in c), None)
         qty_2025_col = next((c for c in df_raw.columns if "qty" in c.lower() and "2025" in c), None)
