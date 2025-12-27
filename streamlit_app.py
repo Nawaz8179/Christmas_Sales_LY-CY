@@ -122,7 +122,7 @@ c4.metric(
 
 
 
-    fig = px.bar(
+fig = px.bar(
         store_agg.sort_values("YOY_Δ"),
         x="YOY_Δ",
         y="Store",
