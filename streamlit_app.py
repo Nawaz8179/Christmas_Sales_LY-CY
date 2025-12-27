@@ -92,12 +92,35 @@ if view_mode == "YOY – Like-to-Like Stores (LFL)":
 
     store_agg["Verdict"] = store_agg.apply(verdict, axis=1)
 
-    # KPIs
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Sales 2024", f"₹{store_agg['Sales_LY'].sum():,.0f}")
-    c2.metric("Sales 2025", f"₹{store_agg['Sales_CY'].sum():,.0f}")
-    c3.metric("Net YOY Change", f"₹{store_agg['YOY_Δ'].sum():,.0f}")
-    c4.metric("% Stores Improved", f"{(store_agg['YOY_%'] > 0).mean()*100:.1f}%")
+# KPIs — BUSINESS WEIGHTED
+total_ly = store_agg["Sales_LY"].sum()
+total_cy = store_agg["Sales_CY"].sum()
+net_yoy = total_cy - total_ly
+overall_yoy_pct = (net_yoy / total_ly) if total_ly != 0 else 0
+
+c1, c2, c3, c4 = st.columns(4)
+
+c1.metric(
+    "Sales 2024",
+    f"₹{total_ly:,.0f}"
+)
+
+c2.metric(
+    "Sales 2025",
+    f"₹{total_cy:,.0f}"
+)
+
+c3.metric(
+    "Net YOY Change",
+    f"₹{net_yoy:,.0f}"
+)
+
+c4.metric(
+    "Overall YOY %",
+    f"{overall_yoy_pct * 100:.1f}%"
+)
+
+
 
     fig = px.bar(
         store_agg.sort_values("YOY_Δ"),
