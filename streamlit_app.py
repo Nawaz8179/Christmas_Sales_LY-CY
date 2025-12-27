@@ -9,231 +9,169 @@ import plotly.express as px
 st.set_page_config(
     page_title="Christmas Sales LY-CY",
     layout="wide",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="expanded"
 )
 
 st.title("Christmas Sales LY-CY (2024 vs 2025)")
-st.caption("20–25 Dec | Like-to-Like Stores")
+st.caption("20–25 Dec | Christmas Performance Review")
 
 # =====================================================
-# LOAD DATA
+# LOAD ALL SHEETS
 # =====================================================
 @st.cache_data
-def load_data(path):
-    return pd.read_excel(path)
+def load_all_sheets(path):
+    return pd.read_excel(path, sheet_name=None)
 
 FILE_PATH = "YOY COMPARISION OF STORES & HO.xlsx"
-df_raw = load_data(FILE_PATH)
+sheets = load_all_sheets(FILE_PATH)
 
 # =====================================================
-# SANITY CHECKS (ROBUST)
+# SIDEBAR – CONTEXT SWITCH (NOT A FILTER)
 # =====================================================
-required_base_cols = [
-    "Site",
-    "Date",
-    "Net Sale Amount - 2024",
-    "Net Sale Amount - 2025"
-]
+st.sidebar.title("View Mode")
 
-missing_base = [c for c in required_base_cols if c not in df_raw.columns]
-if missing_base:
-    st.error(f"Missing required columns: {missing_base}")
-    st.stop()
-
-# Detect quantity columns dynamically
-qty_2024_col = next((c for c in df_raw.columns if "qty" in c.lower() and "2024" in c), None)
-qty_2025_col = next((c for c in df_raw.columns if "qty" in c.lower() and "2025" in c), None)
-
-if not qty_2024_col or not qty_2025_col:
-    st.error("Quantity columns for 2024 / 2025 not found. Check Excel headers.")
-    st.stop()
-
-# =====================================================
-# NORMALIZE DATA
-# =====================================================
-df = df_raw.rename(columns={
-    "Site": "Store",
-    qty_2024_col: "Qty_LY",
-    "Net Sale Amount - 2024": "Sales_LY",
-    qty_2025_col: "Qty_CY",
-    "Net Sale Amount - 2025": "Sales_CY"
-})
-
-df["Date"] = pd.to_datetime(df["Date"])
-
-df["Daily_YOY"] = df["Sales_CY"] - df["Sales_LY"]
-df["Qty_YOY"] = df["Qty_CY"] - df["Qty_LY"]
-
-# =====================================================
-# AGGREGATIONS
-# =====================================================
-store_agg = df.groupby("Store").agg(
-    Sales_LY_Total=("Sales_LY", "sum"),
-    Sales_CY_Total=("Sales_CY", "sum"),
-    Qty_LY_Total=("Qty_LY", "sum"),
-    Qty_CY_Total=("Qty_CY", "sum"),
-    Max_Daily_YOY=("Daily_YOY", "max"),
-    Avg_Daily_YOY=("Daily_YOY", "mean"),
-    Std_Daily_YOY=("Daily_YOY", "std")
-).reset_index()
-
-store_agg["YOY_Delta"] = store_agg["Sales_CY_Total"] - store_agg["Sales_LY_Total"]
-store_agg["YOY_Pct"] = np.where(
-    store_agg["Sales_LY_Total"] != 0,
-    store_agg["YOY_Delta"] / store_agg["Sales_LY_Total"],
-    0
-)
-
-store_agg["Qty_YOY_Pct"] = np.where(
-    store_agg["Qty_LY_Total"] != 0,
-    (store_agg["Qty_CY_Total"] - store_agg["Qty_LY_Total"]) / store_agg["Qty_LY_Total"],
-    0
-)
-
-store_agg["YOY_Spike_Index"] = np.where(
-    store_agg["Avg_Daily_YOY"] > 0,
-    store_agg["Max_Daily_YOY"] / store_agg["Avg_Daily_YOY"],
-    np.nan
+view_mode = st.sidebar.radio(
+    "Select Analysis",
+    [
+        "YOY – Like-to-Like Stores (LFL)",
+        "YOY of HO",
+        "Closed Stores",
+        "New Stores"
+    ]
 )
 
 # =====================================================
-# EXECUTION VERDICT (AUTO)
+# 1️⃣ LFL – CEO EXECUTION DASHBOARD (UNCHANGED CORE LOGIC)
 # =====================================================
-def verdict(row):
-    if row["YOY_Pct"] < 0:
-        return "DECLINED"
-    if row["YOY_Spike_Index"] > 1.8:
-        return "IMPROVED – FORCED"
-    if row["YOY_Pct"] > 0 and row["Qty_YOY_Pct"] >= 0:
-        return "IMPROVED – CONTROLLED"
-    if row["YOY_Pct"] > 0 and row["Qty_YOY_Pct"] < 0:
-        return "PRICE-DRIVEN RISK"
-    return "UNCLASSIFIED"
+if view_mode == "YOY – Like-to-Like Stores (LFL)":
 
-store_agg["Execution Verdict"] = store_agg.apply(verdict, axis=1)
+    df_raw = sheets["YOY – Like-to-Like Stores (LFL)"]
 
-# =====================================================
-# KPI METRICS
-# =====================================================
-total_ly = store_agg["Sales_LY_Total"].sum()
-total_cy = store_agg["Sales_CY_Total"].sum()
-net_yoy = total_cy - total_ly
-pct_improved = (store_agg["YOY_Pct"] > 0).mean() * 100
+    # Detect Qty columns dynamically
+    qty_2024_col = next((c for c in df_raw.columns if "qty" in c.lower() and "2024" in c), None)
+    qty_2025_col = next((c for c in df_raw.columns if "qty" in c.lower() and "2025" in c), None)
 
-# =====================================================
-# TABS
-# =====================================================
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "CEO Verdict",
-    "Daily YOY Consistency",
-    "LY vs CY Shape",
-    "Value vs Volume",
-    "Action Table"
-])
-
-# =====================================================
-# TAB 1 — CEO VERDICT
-# =====================================================
-with tab1:
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Sales 2024", f"₹{total_ly:,.0f}")
-    c2.metric("Sales 2025", f"₹{total_cy:,.0f}")
-    c3.metric("Net YOY Change", f"₹{net_yoy:,.0f}")
-    c4.metric("% Stores Improved", f"{pct_improved:.1f}%")
-
-    fig = px.bar(
-        store_agg.sort_values("YOY_Delta"),
-        x="YOY_Delta",
-        y="Store",
-        orientation="h",
-        color=store_agg["YOY_Delta"] > 0,
-        color_discrete_map={True: "green", False: "red"},
-        title="Store-wise YOY Impact"
-    )
-
-    spike = store_agg[store_agg["YOY_Spike_Index"] > 1.8]
-    fig.add_scatter(
-        x=spike["YOY_Delta"],
-        y=spike["Store"],
-        mode="markers",
-        marker=dict(color="black", size=10),
-        name="Spike Driven"
-    )
-
-    st.plotly_chart(fig, use_container_width=True)
-
-# =====================================================
-# TAB 2 — DAILY YOY CONSISTENCY
-# =====================================================
-with tab2:
-    heat = df.pivot_table(
-        index="Store",
-        columns=df["Date"].dt.strftime("%d-%b"),
-        values="Daily_YOY",
-        aggfunc="sum"
-    )
-
-    fig = px.imshow(
-        heat,
-        color_continuous_scale="RdYlGn",
-        title="Daily YOY Difference (CY − LY)"
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-# =====================================================
-# TAB 3 — LY vs CY SHAPE
-# =====================================================
-with tab3:
-    store_sel = st.selectbox("Select Store", df["Store"].unique())
-    d = df[df["Store"] == store_sel].sort_values("Date")
-
-    fig = px.line(
-        d,
-        x="Date",
-        y=["Sales_LY", "Sales_CY"],
-        labels={"value": "Sales", "variable": "Year"},
-        title=f"LY vs CY Daily Shape — {store_sel}"
-    )
-    fig.update_traces(line=dict(width=3))
-    st.plotly_chart(fig, use_container_width=True)
-
-# =====================================================
-# TAB 4 — VALUE vs VOLUME
-# =====================================================
-with tab4:
-    fig = px.scatter(
-        store_agg,
-        x="Qty_YOY_Pct",
-        y="YOY_Pct",
-        text="Store",
-        title="Value vs Volume Truth Map"
-    )
-    fig.add_hline(y=0)
-    fig.add_vline(x=0)
-    st.plotly_chart(fig, use_container_width=True)
-
-# =====================================================
-# TAB 5 — ACTION TABLE
-# =====================================================
-with tab5:
-    final_table = store_agg[[
-        "Store",
-        "Sales_LY_Total",
-        "Sales_CY_Total",
-        "YOY_Delta",
-        "YOY_Pct",
-        "YOY_Spike_Index",
-        "Qty_YOY_Pct",
-        "Execution Verdict"
-    ]]
-
-    final_table = final_table.rename(columns={
-        "Sales_LY_Total": "Sales LY",
-        "Sales_CY_Total": "Sales CY",
-        "YOY_Delta": "YOY Δ",
-        "YOY_Pct": "YOY %",
-        "YOY_Spike_Index": "YOY Spike Index",
-        "Qty_YOY_Pct": "Qty YOY %"
+    df = df_raw.rename(columns={
+        "Site": "Store",
+        "Net Sale Amount - 2024": "Sales_LY",
+        "Net Sale Amount - 2025": "Sales_CY",
+        qty_2024_col: "Qty_LY",
+        qty_2025_col: "Qty_CY"
     })
 
-    st.dataframe(final_table, use_container_width=True)
+    df["Date"] = pd.to_datetime(df["Date"])
+    df["Daily_YOY"] = df["Sales_CY"] - df["Sales_LY"]
+
+    store_agg = df.groupby("Store").agg(
+        Sales_LY=("Sales_LY", "sum"),
+        Sales_CY=("Sales_CY", "sum"),
+        Qty_LY=("Qty_LY", "sum"),
+        Qty_CY=("Qty_CY", "sum"),
+        Max_Daily_YOY=("Daily_YOY", "max"),
+        Avg_Daily_YOY=("Daily_YOY", "mean")
+    ).reset_index()
+
+    store_agg["YOY_Δ"] = store_agg["Sales_CY"] - store_agg["Sales_LY"]
+    store_agg["YOY_%"] = store_agg["YOY_Δ"] / store_agg["Sales_LY"]
+    store_agg["Qty_YOY_%"] = (store_agg["Qty_CY"] - store_agg["Qty_LY"]) / store_agg["Qty_LY"]
+
+    store_agg["Spike_Index"] = np.where(
+        store_agg["Avg_Daily_YOY"] > 0,
+        store_agg["Max_Daily_YOY"] / store_agg["Avg_Daily_YOY"],
+        np.nan
+    )
+
+    def verdict(r):
+        if r["YOY_%"] < 0:
+            return "DECLINED"
+        if r["Spike_Index"] > 1.8:
+            return "IMPROVED – FORCED"
+        if r["Qty_YOY_%"] >= 0:
+            return "IMPROVED – CONTROLLED"
+        return "PRICE-DRIVEN RISK"
+
+    store_agg["Verdict"] = store_agg.apply(verdict, axis=1)
+
+    # KPIs
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Sales 2024", f"₹{store_agg['Sales_LY'].sum():,.0f}")
+    c2.metric("Sales 2025", f"₹{store_agg['Sales_CY'].sum():,.0f}")
+    c3.metric("Net YOY Change", f"₹{store_agg['YOY_Δ'].sum():,.0f}")
+    c4.metric("% Stores Improved", f"{(store_agg['YOY_%'] > 0).mean()*100:.1f}%")
+
+    fig = px.bar(
+        store_agg.sort_values("YOY_Δ"),
+        x="YOY_Δ",
+        y="Store",
+        orientation="h",
+        title="Store-wise YOY Impact",
+        color=store_agg["YOY_Δ"] > 0,
+        color_discrete_map={True: "green", False: "red"}
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    st.dataframe(store_agg[[
+        "Store", "Sales_LY", "Sales_CY", "YOY_Δ", "YOY_%", "Spike_Index", "Verdict"
+    ]], use_container_width=True)
+
+# =====================================================
+# 2️⃣ YOY OF HO
+# =====================================================
+elif view_mode == "YOY of HO":
+
+    df = sheets["YOY OF HO"]
+    df["Date"] = pd.to_datetime(df["Date"])
+    df["YOY_Δ"] = df["Net Sale Amount - 2025"] - df["Net Sale Amount - 2024"]
+
+    st.metric("Net HO YOY Change", f"₹{df['YOY_Δ'].sum():,.0f}")
+
+    fig = px.line(
+        df,
+        x="Date",
+        y=["Net Sale Amount - 2024", "Net Sale Amount - 2025"],
+        title="HO – LY vs CY Daily Sales"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+# =====================================================
+# 3️⃣ CLOSED STORES – LOSS ANALYSIS
+# =====================================================
+elif view_mode == "Closed Stores":
+
+    df = sheets["Closed Stores"]
+
+    lost_sales = df["Net Sale Amount - 2024"].sum()
+    st.metric("Revenue Lost Due to Closures", f"₹{lost_sales:,.0f}")
+
+    fig = px.bar(
+        df.groupby("Site")["Net Sale Amount - 2024"].sum().reset_index(),
+        x="Net Sale Amount - 2024",
+        y="Site",
+        orientation="h",
+        title="Sales Lost by Closed Store"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+# =====================================================
+# 4️⃣ NEW STORES – CONTRIBUTION VIEW
+# =====================================================
+elif view_mode == "New Stores":
+
+    df = sheets["New Stores"]
+    df["Date"] = pd.to_datetime(df["Date"])
+
+    total_sales = df["Net Sale Amount - 2025"].sum()
+    avg_sales = df.groupby("Site")["Net Sale Amount - 2025"].sum().mean()
+
+    c1, c2 = st.columns(2)
+    c1.metric("Total New Store Sales", f"₹{total_sales:,.0f}")
+    c2.metric("Avg Sales per New Store", f"₹{avg_sales:,.0f}")
+
+    fig = px.bar(
+        df.groupby("Site")["Net Sale Amount - 2025"].sum().reset_index(),
+        x="Net Sale Amount - 2025",
+        y="Site",
+        orientation="h",
+        title="New Store Contribution (2025)"
+    )
+    st.plotly_chart(fig, use_container_width=True)
