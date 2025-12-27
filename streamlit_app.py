@@ -119,19 +119,86 @@ if view_mode == "YOY – Like-to-Like Stores (LFL)":
 # =====================================================
 elif view_mode == "YOY of HO":
 
-    df = sheets["YOY OF HO"]
-    df["Date"] = pd.to_datetime(df["Date"])
-    df["YOY_Δ"] = df["Net Sale Amount - 2025"] - df["Net Sale Amount - 2024"]
+    st.header("HO Performance – YOY Review")
 
-    st.metric("Net HO YOY Change", f"₹{df['YOY_Δ'].sum():,.0f}")
+    # -----------------------------
+    # Load & Aggregate HO Data
+    # -----------------------------
+    df_raw = sheets["YOY OF HO"].copy()
+    df_raw["Date"] = pd.to_datetime(df_raw["Date"])
 
-    fig = px.line(
-        df,
-        x="Date",
-        y=["Net Sale Amount - 2024", "Net Sale Amount - 2025"],
-        title="HO – LY vs CY Daily Sales"
+    ho_daily = df_raw.groupby("Date").agg(
+        Sales_LY=("Net Sale Amount - 2024", "sum"),
+        Sales_CY=("Net Sale Amount - 2025", "sum")
+    ).reset_index()
+
+    ho_daily["YOY_Δ"] = ho_daily["Sales_CY"] - ho_daily["Sales_LY"]
+    ho_daily["YOY_%"] = np.where(
+        ho_daily["Sales_LY"] != 0,
+        ho_daily["YOY_Δ"] / ho_daily["Sales_LY"],
+        0
     )
-    st.plotly_chart(fig, use_container_width=True)
+
+    # -----------------------------
+    # KPI SECTION (EXECUTIVE FIRST)
+    # -----------------------------
+    c1, c2, c3 = st.columns(3)
+
+    c1.metric(
+        "HO Sales 2024",
+        f"₹{ho_daily['Sales_LY'].sum():,.0f}"
+    )
+
+    c2.metric(
+        "HO Sales 2025",
+        f"₹{ho_daily['Sales_CY'].sum():,.0f}"
+    )
+
+    c3.metric(
+        "Net HO YOY Change",
+        f"₹{ho_daily['YOY_Δ'].sum():,.0f}"
+    )
+
+    st.divider()
+
+    # -----------------------------
+    # CHART 1 — LY vs CY TREND
+    # -----------------------------
+    fig_trend = px.line(
+        ho_daily,
+        x="Date",
+        y=["Sales_LY", "Sales_CY"],
+        labels={"value": "Sales", "variable": "Year"},
+        title="HO – Daily Sales Trend (LY vs CY)"
+    )
+    fig_trend.update_traces(line=dict(width=3))
+    st.plotly_chart(fig_trend, use_container_width=True)
+
+    # -----------------------------
+    # CHART 2 — DAILY YOY IMPACT
+    # -----------------------------
+    fig_delta = px.bar(
+        ho_daily,
+        x="Date",
+        y="YOY_Δ",
+        title="HO – Daily YOY Impact (CY − LY)",
+        color=ho_daily["YOY_Δ"] > 0,
+        color_discrete_map={True: "green", False: "red"}
+    )
+    st.plotly_chart(fig_delta, use_container_width=True)
+
+    # -----------------------------
+    # ACTION TABLE — NO HIDING
+    # -----------------------------
+    ho_table = ho_daily.rename(columns={
+        "Sales_LY": "Sales LY",
+        "Sales_CY": "Sales CY",
+        "YOY_Δ": "YOY Δ",
+        "YOY_%": "YOY %"
+    })
+
+    st.subheader("HO – Daily Performance Table")
+    st.dataframe(ho_table, use_container_width=True)
 
 # =====================================================
 # 3️⃣ CLOSED STORES – LOSS ANALYSIS
