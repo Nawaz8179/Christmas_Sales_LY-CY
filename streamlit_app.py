@@ -7,12 +7,12 @@ import plotly.express as px
 # PAGE CONFIG
 # =====================================================
 st.set_page_config(
-    page_title="Christmas Sales LY-CY",
+    page_title="Sales Performance YOY",
     layout="wide"
 )
 
-st.title("Christmas Sales LY-CY (2024 vs 2025)")
-st.caption("Execution View | Christmas vs Full December")
+st.title("Sales Performance Dashboard")
+st.caption("Christmas | December Full Month | January MTD — YOY Review")
 
 # =====================================================
 # LOAD FILES
@@ -23,20 +23,31 @@ def load_sheets(path):
 
 CHRISTMAS_FILE = "YOY COMPARISION OF STORES & HO.xlsx"
 DEC_FILE = "DEC 2024-2025.xlsx"
+JAN_FILE = "JAN 2025-2026 MTD.xlsx"
 
 christmas_sheets = load_sheets(CHRISTMAS_FILE)
 dec_sheets = load_sheets(DEC_FILE)
+jan_sheets = load_sheets(JAN_FILE)
 
 # =====================================================
-# TOP PERIOD TOGGLE (GLOBAL)
+# PERIOD TOGGLE (GLOBAL CONTEXT)
 # =====================================================
 period = st.radio(
     "Select Period",
-    ["Christmas (20–25 Dec)", "Full December"],
+    [
+        "Christmas (20–25 Dec)",
+        "December Full Month",
+        "January MTD (1–27)"
+    ],
     horizontal=True
 )
 
-data_source = christmas_sheets if period == "Christmas (20–25 Dec)" else dec_sheets
+if period == "Christmas (20–25 Dec)":
+    data_source = christmas_sheets
+elif period == "December Full Month":
+    data_source = dec_sheets
+else:
+    data_source = jan_sheets
 
 # =====================================================
 # SIDEBAR – VIEW MODE
@@ -54,21 +65,26 @@ view_mode = st.sidebar.radio(
 )
 
 # =====================================================
+# HELPER: DYNAMIC SALES COLUMNS
+# =====================================================
+def detect_sales_columns(df):
+    ly_col = next(c for c in df.columns if "Net Sale Amount" in c and "202" in c)
+    cy_col = [c for c in df.columns if "Net Sale Amount" in c and c != ly_col][0]
+    return ly_col, cy_col
+
+# =====================================================
 # 1️⃣ LFL – YOY
 # =====================================================
 if view_mode == "YOY – Like-to-Like Stores (LFL)":
 
     df_raw = data_source["YOY – Like-to-Like Stores (LFL)"].copy()
 
-    qty_2024 = next((c for c in df_raw.columns if "qty" in c.lower() and "2024" in c), None)
-    qty_2025 = next((c for c in df_raw.columns if "qty" in c.lower() and "2025" in c), None)
+    ly_col, cy_col = detect_sales_columns(df_raw)
 
     df = df_raw.rename(columns={
         "Site": "Store",
-        "Net Sale Amount - 2024": "Sales_LY",
-        "Net Sale Amount - 2025": "Sales_CY",
-        qty_2024: "Qty_LY",
-        qty_2025: "Qty_CY"
+        ly_col: "Sales_LY",
+        cy_col: "Sales_CY"
     })
 
     store_agg = df.groupby("Store").agg(
@@ -95,7 +111,7 @@ if view_mode == "YOY – Like-to-Like Stores (LFL)":
         x="YOY_Δ",
         y="Store",
         orientation="h",
-        title=f"LFL Store Impact – {period}",
+        title=f"LFL Store Impact — {period}",
         color=store_agg["YOY_Δ"] > 0,
         color_discrete_map={True: "green", False: "red"}
     )
@@ -109,15 +125,18 @@ if view_mode == "YOY – Like-to-Like Stores (LFL)":
 elif view_mode == "YOY of HO":
 
     df = data_source["YOY OF HO"].copy()
+    ly_col, cy_col = detect_sales_columns(df)
 
-    total_ly = df["Net Sale Amount - 2024"].sum()
-    total_cy = df["Net Sale Amount - 2025"].sum()
+    total_ly = df[ly_col].sum()
+    total_cy = df[cy_col].sum()
     net_yoy = total_cy - total_ly
+    yoy_pct = (net_yoy / total_ly) if total_ly else 0
 
-    c1, c2, c3 = st.columns(3)
+    c1, c2, c3, c4 = st.columns(4)
     c1.metric("HO LY", f"₹{total_ly:,.0f}")
     c2.metric("HO CY", f"₹{total_cy:,.0f}")
     c3.metric("Net YOY", f"₹{net_yoy:,.0f}")
+    c4.metric("YOY %", f"{yoy_pct*100:.1f}%")
 
 # =====================================================
 # 3️⃣ CLOSED STORES
@@ -125,16 +144,18 @@ elif view_mode == "YOY of HO":
 elif view_mode == "Closed Stores":
 
     df = data_source["Closed Stores"].copy()
+    ly_col, _ = detect_sales_columns(df)
 
-    lost = df["Net Sale Amount - 2024"].sum()
-    st.metric(f"Revenue Lost ({period})", f"₹{lost:,.0f}")
+    lost_sales = df[ly_col].sum()
+
+    st.metric(f"Revenue Lost — {period}", f"₹{lost_sales:,.0f}")
 
     fig = px.bar(
-        df.groupby("Site")["Net Sale Amount - 2024"].sum().reset_index(),
-        x="Net Sale Amount - 2024",
+        df.groupby("Site")[ly_col].sum().reset_index(),
+        x=ly_col,
         y="Site",
         orientation="h",
-        title=f"Closed Store Impact – {period}"
+        title=f"Closed Store Impact — {period}"
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -144,19 +165,20 @@ elif view_mode == "Closed Stores":
 elif view_mode == "New Stores":
 
     df = data_source["New Stores"].copy()
+    _, cy_col = detect_sales_columns(df)
 
-    total_sales = df["Net Sale Amount - 2025"].sum()
-    avg_sales = df.groupby("Site")["Net Sale Amount - 2025"].sum().mean()
+    total_sales = df[cy_col].sum()
+    avg_sales = df.groupby("Site")[cy_col].sum().mean()
 
     c1, c2 = st.columns(2)
-    c1.metric(f"New Store Sales ({period})", f"₹{total_sales:,.0f}")
+    c1.metric(f"New Store Sales — {period}", f"₹{total_sales:,.0f}")
     c2.metric("Avg per Store", f"₹{avg_sales:,.0f}")
 
     fig = px.bar(
-        df.groupby("Site")["Net Sale Amount - 2025"].sum().reset_index(),
-        x="Net Sale Amount - 2025",
+        df.groupby("Site")[cy_col].sum().reset_index(),
+        x=cy_col,
         y="Site",
         orientation="h",
-        title=f"New Store Contribution – {period}"
+        title=f"New Store Contribution — {period}"
     )
     st.plotly_chart(fig, use_container_width=True)
