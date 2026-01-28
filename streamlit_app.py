@@ -185,22 +185,26 @@ elif view_mode == "Closed Stores":
 elif view_mode == "New Stores":
 
     df = data_source["New Stores"].copy()
-    _, cy_col = detect_sales_columns(df)
 
-    if cy_col is None:
-        st.error("New Stores sheet must contain a CY sales column.")
+    # Pick the ONLY Net Sale Amount column (current period)
+    sale_cols = [c for c in df.columns if "Net Sale Amount" in c]
+
+    if not sale_cols:
+        st.info(f"No New Store sales data available for {period}.")
         st.stop()
 
-    total_sales = df[cy_col].sum()
-    avg_sales = df.groupby("Site")[cy_col].sum().mean()
+    sales_col = sale_cols[0]  # only one exists by design
+
+    total_sales = df[sales_col].sum()
+    avg_sales = df.groupby("Site")[sales_col].sum().mean()
 
     c1, c2 = st.columns(2)
     c1.metric(f"New Store Sales — {period}", f"₹{total_sales:,.0f}")
     c2.metric("Avg per Store", f"₹{avg_sales:,.0f}")
 
     fig = px.bar(
-        df.groupby("Site")[cy_col].sum().reset_index(),
-        x=cy_col,
+        df.groupby("Site")[sales_col].sum().reset_index(),
+        x=sales_col,
         y="Site",
         orientation="h",
         title=f"New Store Contribution — {period}"
