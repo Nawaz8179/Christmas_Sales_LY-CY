@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
 import plotly.express as px
 
 # =====================================================
@@ -30,7 +29,7 @@ dec_sheets = load_sheets(DEC_FILE)
 jan_sheets = load_sheets(JAN_FILE)
 
 # =====================================================
-# PERIOD TOGGLE (GLOBAL CONTEXT)
+# PERIOD TOGGLE (GLOBAL)
 # =====================================================
 period = st.radio(
     "Select Period",
@@ -65,11 +64,22 @@ view_mode = st.sidebar.radio(
 )
 
 # =====================================================
-# HELPER: DYNAMIC SALES COLUMNS
+# HELPER: SAFE SALES COLUMN DETECTION
 # =====================================================
 def detect_sales_columns(df):
-    ly_col = next(c for c in df.columns if "Net Sale Amount" in c and "202" in c)
-    cy_col = [c for c in df.columns if "Net Sale Amount" in c and c != ly_col][0]
+    sale_cols = [c for c in df.columns if "Net Sale Amount" in c]
+
+    if not sale_cols:
+        return None, None
+
+    sale_cols_sorted = sorted(
+        sale_cols,
+        key=lambda x: int("".join(filter(str.isdigit, x)))
+    )
+
+    ly_col = sale_cols_sorted[0] if len(sale_cols_sorted) >= 1 else None
+    cy_col = sale_cols_sorted[1] if len(sale_cols_sorted) >= 2 else None
+
     return ly_col, cy_col
 
 # =====================================================
@@ -78,8 +88,11 @@ def detect_sales_columns(df):
 if view_mode == "YOY – Like-to-Like Stores (LFL)":
 
     df_raw = data_source["YOY – Like-to-Like Stores (LFL)"].copy()
-
     ly_col, cy_col = detect_sales_columns(df_raw)
+
+    if ly_col is None or cy_col is None:
+        st.error("LFL sheet must contain both LY and CY sales columns.")
+        st.stop()
 
     df = df_raw.rename(columns={
         "Site": "Store",
@@ -127,6 +140,10 @@ elif view_mode == "YOY of HO":
     df = data_source["YOY OF HO"].copy()
     ly_col, cy_col = detect_sales_columns(df)
 
+    if ly_col is None or cy_col is None:
+        st.error("HO sheet must contain both LY and CY sales columns.")
+        st.stop()
+
     total_ly = df[ly_col].sum()
     total_cy = df[cy_col].sum()
     net_yoy = total_cy - total_ly
@@ -146,8 +163,11 @@ elif view_mode == "Closed Stores":
     df = data_source["Closed Stores"].copy()
     ly_col, _ = detect_sales_columns(df)
 
-    lost_sales = df[ly_col].sum()
+    if ly_col is None:
+        st.error("Closed Stores sheet must contain an LY sales column.")
+        st.stop()
 
+    lost_sales = df[ly_col].sum()
     st.metric(f"Revenue Lost — {period}", f"₹{lost_sales:,.0f}")
 
     fig = px.bar(
@@ -166,6 +186,10 @@ elif view_mode == "New Stores":
 
     df = data_source["New Stores"].copy()
     _, cy_col = detect_sales_columns(df)
+
+    if cy_col is None:
+        st.error("New Stores sheet must contain a CY sales column.")
+        st.stop()
 
     total_sales = df[cy_col].sum()
     avg_sales = df.groupby("Site")[cy_col].sum().mean()
